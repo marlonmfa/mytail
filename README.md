@@ -11,7 +11,7 @@ MyTail is a consent broker for remote support on customer Windows machines. It i
 
 It does not implement a hidden admin agent or an always-on privileged backdoor.
 
-The public, static explanation and download landing page lives in `site/`. It is
+The public, static explanation and download landing page lives in `docs/`. It is
 the only component intended for deployment at `https://suporte.hirableaiagents.com`;
 the consent broker is not exposed at that hostname.
 
