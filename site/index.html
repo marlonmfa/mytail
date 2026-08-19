@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MyTail: acesso remoto com consentimento claro, duração limitada e histórico auditável.">
+  <meta name="theme-color" content="#07111f">
+  <title>MyTail — suporte remoto transparente</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f5f8ff;
+      --muted: #aab6ca;
+      --line: rgba(255,255,255,.12);
+      --panel: rgba(13,27,45,.72);
+      --accent: #57e6b1;
+      --accent-2: #71a8ff;
+      --bg: #07111f;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 5%, rgba(47,122,255,.22), transparent 32rem),
+        radial-gradient(circle at 88% 16%, rgba(37,217,154,.14), transparent 28rem),
+        var(--bg);
+      font: 16px/1.6 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: inherit; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 28px 0; }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 760; text-decoration: none; letter-spacing: -.02em; }
+    .mark { width: 32px; height: 32px; border: 1px solid rgba(87,230,177,.5); border-radius: 10px; background: linear-gradient(145deg, rgba(87,230,177,.28), rgba(113,168,255,.18)); display: grid; place-items: center; }
+    .mark::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 18px var(--accent); }
+    nav a { color: var(--muted); text-decoration: none; margin-left: 24px; font-size: 14px; }
+    nav a:hover { color: var(--ink); }
+    .hero { padding: 92px 0 76px; text-align: center; }
+    .eyebrow { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; color: var(--accent); background: rgba(255,255,255,.035); font-size: 13px; }
+    h1 { max-width: 880px; margin: 25px auto 22px; font-size: clamp(44px, 7vw, 78px); line-height: 1.02; letter-spacing: -.055em; }
+    h1 span { color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent-2)); background-clip: text; -webkit-background-clip: text; }
+    .lead { max-width: 700px; margin: 0 auto; color: var(--muted); font-size: clamp(18px, 2.2vw, 21px); }
+    .hero-actions { margin-top: 34px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 20px; border-radius: 12px; border: 1px solid var(--line); text-decoration: none; font-weight: 700; }
+    .button.primary { color: #052119; border-color: transparent; background: var(--accent); }
+    .button.secondary { background: rgba(255,255,255,.04); }
+    section { padding: 72px 0; }
+    .section-title { max-width: 680px; margin-bottom: 28px; }
+    h2 { margin: 0 0 12px; font-size: clamp(30px, 4vw, 45px); line-height: 1.12; letter-spacing: -.035em; }
+    .section-title p, .fine { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { border: 1px solid var(--line); border-radius: 20px; padding: 25px; background: var(--panel); backdrop-filter: blur(14px); }
+    .card .number { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 10px; color: var(--accent); background: rgba(87,230,177,.1); font-weight: 800; }
+    .card h3 { margin: 18px 0 8px; font-size: 19px; }
+    .card p { margin: 0; color: var(--muted); }
+    .promise { border: 1px solid rgba(87,230,177,.24); border-radius: 24px; padding: clamp(28px, 5vw, 52px); background: linear-gradient(120deg, rgba(87,230,177,.09), rgba(113,168,255,.08)); }
+    .promise ul { padding: 0; margin: 25px 0 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 13px 28px; }
+    .promise li { color: var(--muted); }
+    .promise li::before { content: "✓"; color: var(--accent); font-weight: 900; margin-right: 10px; }
+    .downloads .card { display: flex; min-height: 240px; flex-direction: column; }
+    .platform { font-size: 24px; font-weight: 800; }
+    .status { align-self: flex-start; margin: 10px 0 20px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px; color: var(--muted); font-size: 12px; }
+    .downloads .button { margin-top: auto; }
+    footer { margin-top: 40px; padding: 34px 0 50px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+    @media (max-width: 760px) {
+      nav { display: none; }
+      .hero { padding-top: 62px; }
+      .grid, .promise ul { grid-template-columns: 1fr; }
+      section { padding: 52px 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <a class="brand" href="#inicio" aria-label="MyTail, início"><span class="mark" aria-hidden="true"></span>MyTail</a>
+    <nav aria-label="Navegação principal">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#transparencia">Transparência</a>
+      <a href="#downloads">Downloads</a>
+    </nav>
+  </header>
+
+  <main id="inicio">
+    <section class="hero wrap">
+      <div class="eyebrow">● Acesso somente com sua autorização</div>
+      <h1>Suporte remoto que deixa <span>você no controle.</span></h1>
+      <p class="lead">O MyTail conecta você à equipe de suporte com aprovação explícita, tempo limitado e registro de cada acesso. Sem sessões escondidas e sem alterar sua internet por padrão.</p>
+      <div class="hero-actions">
+        <a class="button primary" href="#downloads">Ver downloads</a>
+        <a class="button secondary" href="#transparencia">O que será instalado</a>
+      </div>
+    </section>
+
+    <section id="como-funciona" class="wrap">
+      <div class="section-title">
+        <h2>Simples para usar. Difícil de usar sem permissão.</h2>
+        <p>Cada atendimento começa com uma solicitação visível e termina automaticamente no prazo escolhido por você.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><span class="number">1</span><h3>Instale com clareza</h3><p>Antes de pedir privilégios, o instalador mostra os componentes, permissões e mudanças de rede necessárias.</p></article>
+        <article class="card"><span class="number">2</span><h3>Aprove o atendimento</h3><p>Você vê quem solicitou acesso, o motivo e a duração. Nada começa antes da sua confirmação.</p></article>
+        <article class="card"><span class="number">3</span><h3>Encerre quando quiser</h3><p>O acesso expira sozinho e também pode ser interrompido imediatamente pelo cliente.</p></article>
+      </div>
+    </section>
+
+    <section id="transparencia" class="wrap">
+      <div class="promise">
+        <div class="section-title">
+          <h2>O que o MyTail faz no computador</h2>
+          <p>Nossa regra é explicar antes de alterar. O aplicativo será visível, removível e limitado ao suporte autorizado.</p>
+        </div>
+        <ul>
+          <li>Instala um serviço local identificado como MyTail</li>
+          <li>Cria conexão criptografada somente quando necessário</li>
+          <li>Exibe o estado da conexão e o tempo restante</li>
+          <li>Registra aprovações e encerramentos para auditoria</li>
+          <li>Não lê arquivos para fins de publicidade</li>
+          <li>Não encaminha toda a internet por padrão</li>
+          <li>Não inicia atendimento oculto</li>
+          <li>Permite pausar e desinstalar o aplicativo</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="downloads" class="wrap downloads">
+      <div class="section-title">
+        <h2>Baixe para sua plataforma</h2>
+        <p>Os instaladores assinados serão publicados nos Releases oficiais. Enquanto a validação de segurança não termina, você pode acompanhar cada plataforma abaixo.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><div class="platform">Windows</div><span class="status">Em breve</span><p>Instalador assinado para Windows 10 e 11.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases" rel="noopener">Acompanhar lançamento</a></article>
+        <article class="card"><div class="platform">macOS</div><span class="status">Em breve</span><p>Aplicativo notarizado para Macs Apple Silicon e Intel.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases" rel="noopener">Acompanhar lançamento</a></article>
+        <article class="card"><div class="platform">Linux</div><span class="status">Em breve</span><p>Pacotes para distribuições baseadas em Debian.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases" rel="noopener">Acompanhar lançamento</a></article>
+      </div>
+      <p class="fine">Nunca instale pacotes recebidos por mensagem. Confirme sempre que o download veio desta página.</p>
+    </section>
+  </main>
+
+  <footer><div class="wrap"><span>© 2026 MyTail · Hirable AI Agents</span><span>suporte.hirableaiagents.com</span></div></footer>
+</body>
+</html>

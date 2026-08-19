@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  mytail:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: mytail
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3080:8080"
+    environment:
+      PORT: 8080
+      APP_URL: ${APP_URL:-https://support.innexo.solutions}
+      SESSION_SECRET: ${SESSION_SECRET}
+      OPERATOR_EMAIL: ${OPERATOR_EMAIL}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD}
+      DEFAULT_ACCESS_DURATIONS: ${DEFAULT_ACCESS_DURATIONS:-15,30,60,120}
+    volumes:
+      - mytail_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mytail_data:
