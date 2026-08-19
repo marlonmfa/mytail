@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+mkdir -p "/Library/Application Support/MyTail"
+chmod 700 "/Library/Application Support/MyTail"
+launchctl bootout system/com.hirableaiagents.mytail 2>/dev/null || true
+launchctl bootstrap system /Library/LaunchDaemons/com.hirableaiagents.mytail.plist
+launchctl enable system/com.hirableaiagents.mytail
+console_user=$(stat -f '%Su' /dev/console)
+if [ "$console_user" != "root" ] && [ "$console_user" != "loginwindow" ]; then
+  sudo -u "$console_user" open http://127.0.0.1:8787 || true
+fi
+exit 0

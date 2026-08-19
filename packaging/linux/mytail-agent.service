@@ -1,0 +1,18 @@
+[Unit]
+Description=MyTail transparent consent agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mytail-agent
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/mytail
+
+[Install]
+WantedBy=multi-user.target

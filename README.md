@@ -11,6 +11,19 @@ MyTail is a consent broker for remote support on customer Windows machines. It i
 
 It does not implement a hidden admin agent or an always-on privileged backdoor.
 
+## Consent agent alpha
+
+`cmd/mytail-agent` is a cross-platform local consent monitor. It binds only to
+`127.0.0.1:8787`, accepts a broker URL and machine enrollment token, checks in
+every 15 seconds, and shows the active operator, reason, consent code, and
+expiration time. This alpha deliberately does **not** execute remote commands
+or create a network tunnel.
+
+Production installers are built natively for Windows (`.exe`), macOS (`.pkg`),
+and Debian-based Linux (`.deb`) by the release workflow. Until code-signing
+credentials are configured, Windows and macOS packages are unsigned alpha
+builds and will display the operating system's standard warning.
+
 The public, static explanation and download landing page lives in `docs/`. It is
 the only component intended for deployment at `https://suporte.hirableaiagents.com`;
 the consent broker is not exposed at that hostname.
