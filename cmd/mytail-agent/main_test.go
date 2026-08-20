@@ -1,6 +1,16 @@
 package main
 
-import "testing"
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"net"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+)
 
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
@@ -20,4 +30,59 @@ func TestValidateConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEmbeddedSSHRequiresTemporaryOperatorKey(t *testing.T) {
+	agent := &Agent{configPath: filepath.Join(t.TempDir(), "config.json")}
+	if err := agent.ensureEmbeddedSSHServer(); err != nil {
+		t.Fatal(err)
+	}
+	defer agent.sshServer.listener.Close()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicAuthorized := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(publicKeyFromEd25519(t, public))))
+	if err := agent.sshServer.authorize(publicAuthorized, time.Now().Add(time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	config := &ssh.ClientConfig{User: "mytail-admin", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 2 * time.Second}
+	client, err := ssh.Dial("tcp", "127.0.0.1:22222", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := session.Output("printf mytail-ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = client.Close()
+	if string(output) != "mytail-ok" {
+		t.Fatalf("unexpected output: %q", output)
+	}
+	agent.sshServer.revoke()
+	raw, err := net.DialTimeout("tcp", "127.0.0.1:22222", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err = ssh.NewClientConn(raw, "127.0.0.1:22222", config)
+	if err == nil {
+		t.Fatal("revoked key was accepted")
+	}
+}
+
+func publicKeyFromEd25519(t *testing.T, public ed25519.PublicKey) ssh.PublicKey {
+	t.Helper()
+	key, err := ssh.NewPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }

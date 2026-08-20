@@ -1,4 +1,4 @@
-version: "3.8"
+name: mytail
 
 services:
   mytail:
@@ -11,13 +11,26 @@ services:
       - "127.0.0.1:3080:8080"
     environment:
       PORT: 8080
-      APP_URL: ${APP_URL:-https://support.innexo.solutions}
-      SESSION_SECRET: ${SESSION_SECRET}
-      OPERATOR_EMAIL: ${OPERATOR_EMAIL}
-      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD}
+      APP_URL: ${APP_URL:-https://broker-suporte.hirableaiagents.com}
+      SESSION_SECRET_FILE: /run/mytail-secrets/session_secret
+      OPERATOR_EMAIL: ${OPERATOR_EMAIL:-operator@hirableaiagents.com}
+      OPERATOR_PASSWORD_FILE: /run/mytail-secrets/operator_password
+      OPERATOR_SSH_PUBLIC_KEY_FILE: /run/mytail-secrets/operator_ed25519.pub
+      RELAY_KNOWN_HOSTS_FILE: /run/mytail-secrets/relay_known_hosts
+      RELAY_HOST: ${RELAY_HOST:-relay-suporte.hirableaiagents.com}
+      RELAY_SSH_PORT: ${RELAY_SSH_PORT:-22}
+      RELAY_TRANSPORT: ${RELAY_TRANSPORT:-cloudflare}
+      RELAY_USER: mytail-relay
+      RELAY_PORT_BASE: 22000
+      RELAY_PORT_MAX: 29999
+      RELAY_AUTHORIZED_KEYS: /relay/authorized_keys
+      OPERATOR_KNOWN_HOSTS: /operator/known_hosts
       DEFAULT_ACCESS_DURATIONS: ${DEFAULT_ACCESS_DURATIONS:-15,30,60,120}
     volumes:
       - mytail_data:/app/data
+      - /etc/mytail/secrets:/run/mytail-secrets:ro
+      - /var/lib/mytail-relay:/relay
+      - /var/lib/mytail-operator:/operator
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()"]
       interval: 30s
@@ -27,3 +40,5 @@ services:
 
 volumes:
   mytail_data:
+    name: infrastructure_mytail_data
+    external: true

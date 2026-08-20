@@ -8,11 +8,8 @@ Type=simple
 ExecStart=/usr/bin/mytail-agent
 Restart=on-failure
 RestartSec=5
-NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/etc/mytail
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target

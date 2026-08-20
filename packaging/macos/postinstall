@@ -5,6 +5,10 @@ if [ -x "/usr/local/lib/mytail/mytail-agent-$arch" ]; then
   cp "/usr/local/lib/mytail/mytail-agent-$arch" /usr/local/bin/mytail-agent
   chmod 0755 /usr/local/bin/mytail-agent
 fi
+if [ -x "/usr/local/lib/mytail/cloudflared-$arch" ]; then
+  cp "/usr/local/lib/mytail/cloudflared-$arch" /usr/local/bin/cloudflared
+  chmod 0755 /usr/local/bin/cloudflared
+fi
 mkdir -p "/Library/Application Support/MyTail"
 chmod 700 "/Library/Application Support/MyTail"
 launchctl bootout system/com.hirableaiagents.mytail 2>/dev/null || true

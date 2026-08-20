@@ -130,14 +130,14 @@
     <section id="downloads" class="wrap downloads">
       <div class="section-title">
         <h2>Baixe para sua plataforma</h2>
-        <p>A versão alfa instala o agente local de consentimento. Ela mostra autorizações e expiração, mas ainda não cria túnel nem permite controle remoto. Os pacotes Windows e macOS ainda não são assinados.</p>
+        <p>A versão alfa instala um agente privilegiado e o conector Cloudflare. Após sua aprovação explícita, ela abre um túnel SSH reverso temporário para uma sessão administrativa. A chave do operador fica somente na memória e é revogada ao encerrar ou expirar. Os pacotes Windows e macOS ainda não são assinados.</p>
       </div>
       <div class="grid">
-        <article class="card"><div class="platform">Windows</div><span class="status">Alpha · não assinado</span><p>Instalador para Windows 10 e 11, processadores x64.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.1.0-alpha.1/MyTail-Setup-Windows-x64.exe" rel="noopener">Baixar para Windows</a></article>
-        <article class="card"><div class="platform">macOS</div><span class="status">Alpha · não notarizado</span><p>Pacote universal para Macs Apple Silicon e Intel.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.1.0-alpha.1/MyTail-macOS-universal.pkg" rel="noopener">Baixar para macOS</a></article>
-        <article class="card"><div class="platform">Linux</div><span class="status">Alpha</span><p>Pacote para Ubuntu, Debian e derivados em x64.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.1.0-alpha.1/MyTail-Linux-amd64.deb" rel="noopener">Baixar para Linux</a></article>
+        <article class="card"><div class="platform">Windows</div><span class="status">Alpha · não assinado</span><p>Instalador para Windows 10 e 11, processadores x64.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.2.0-alpha.1/MyTail-Setup-Windows-x64.exe" rel="noopener">Baixar para Windows</a></article>
+        <article class="card"><div class="platform">macOS</div><span class="status">Alpha · não notarizado</span><p>Pacote universal para Macs Apple Silicon e Intel.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.2.0-alpha.1/MyTail-macOS-universal.pkg" rel="noopener">Baixar para macOS</a></article>
+        <article class="card"><div class="platform">Linux</div><span class="status">Alpha</span><p>Pacote para Ubuntu, Debian e derivados em x64.</p><a class="button secondary" href="https://github.com/marlonmfa/mytail/releases/download/v0.2.0-alpha.1/MyTail-Linux-amd64.deb" rel="noopener">Baixar para Linux</a></article>
       </div>
-      <p class="fine">Nunca instale pacotes recebidos por mensagem. Confirme sempre que o download veio desta página. Após instalar, abra <strong>http://127.0.0.1:8787</strong> e informe a URL do broker e o token fornecido pelo suporte.</p>
+      <p class="fine">Nunca instale pacotes recebidos por mensagem. Confirme sempre que o download veio desta página. O instalador explica os privilégios solicitados e testa HTTPS, o relay e a autenticação SSH antes de concluir. Depois, o painel local fica em <strong>http://127.0.0.1:8787</strong>.</p>
     </section>
   </main>
 

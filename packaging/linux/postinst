@@ -2,6 +2,11 @@
 set -e
 mkdir -p /etc/mytail
 chmod 700 /etc/mytail
+if [ -n "${MYTAIL_SERVER_URL:-}" ] && [ -n "${MYTAIL_MACHINE_TOKEN:-}" ]; then
+  /usr/bin/mytail-agent --configure-server "$MYTAIL_SERVER_URL" --machine-token "$MYTAIL_MACHINE_TOKEN" --test-only
+fi
 systemctl daemon-reload
 systemctl enable --now mytail-agent.service
-printf '%s\n' 'MyTail instalado. Abra http://127.0.0.1:8787 para configurar.'
+printf '%s\n' 'MyTail instalado como serviço root.'
+printf '%s\n' 'Ele abre uma sessão administrativa somente durante uma aprovação válida.'
+printf '%s\n' 'Abra http://127.0.0.1:8787 para configurar e testar HTTPS, relay e SSH.'

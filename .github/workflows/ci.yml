@@ -1,0 +1,89 @@
+name: build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VERSION: 0.2.0-alpha.1
+  CLOUDFLARED_VERSION: 2026.8.2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22'}
+      - run: go test ./... && go vet ./...
+      - run: python3 -m unittest discover -s tests -v
+      - run: docker build -t mytail-ci .
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22'}
+      - run: MYTAIL_VERSION="$VERSION" ./scripts/build-linux-package.sh
+      - uses: actions/upload-artifact@v4
+        with: {name: linux-installer, path: dist/MyTail-Linux-amd64.deb}
+
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22'}
+      - run: sudo apt-get update && sudo apt-get install -y nsis
+      - run: MYTAIL_VERSION="$VERSION" ./scripts/build-windows-package.sh
+      - uses: actions/upload-artifact@v4
+        with: {name: windows-installer, path: dist/MyTail-Setup-Windows-x64.exe}
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22'}
+      - name: Build universal package
+        run: |
+          root="$RUNNER_TEMP/pkgroot"
+          scripts="$RUNNER_TEMP/pkgscripts"
+          mkdir -p "$root/usr/local/lib/mytail" "$root/Library/LaunchDaemons" "$scripts" dist
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$root/usr/local/lib/mytail/mytail-agent-x86_64" ./cmd/mytail-agent
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$root/usr/local/lib/mytail/mytail-agent-arm64" ./cmd/mytail-agent
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-darwin-amd64.tgz" | tar -xz -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/cloudflared" "$root/usr/local/lib/mytail/cloudflared-x86_64"
+          curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-darwin-arm64.tgz" | tar -xz -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/cloudflared" "$root/usr/local/lib/mytail/cloudflared-arm64"
+          install -m 0644 packaging/macos/com.hirableaiagents.mytail.plist "$root/Library/LaunchDaemons/com.hirableaiagents.mytail.plist"
+          install -m 0755 packaging/macos/postinstall "$scripts/postinstall"
+          pkgbuild --root "$root" --scripts "$scripts" --identifier com.hirableaiagents.mytail --version "$VERSION" --install-location / dist/MyTail-macOS-universal.pkg
+      - uses: actions/upload-artifact@v4
+        with: {name: macos-installer, path: dist/MyTail-macOS-universal.pkg}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: release, merge-multiple: true}
+      - run: cd release && sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          files: release/*
+          body: |
+            Alpha do MyTail com acesso administrativo SSH temporário e consentido.
+            O agente testa a conectividade na instalação, mantém a chave do operador
+            somente em memória e revoga a sessão ao pausar, rejeitar ou expirar.
+            Os pacotes Windows e macOS ainda não são assinados/notarizados.

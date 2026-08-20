@@ -1,71 +1,45 @@
 # MyTail
 
-MyTail is a consent broker for remote support on customer Windows machines. It is intentionally scoped to the safe control-plane pieces:
+MyTail is a transparent, consent-gated remote-support system. A privileged
+cross-platform agent enrolls with the broker, but administrative access stays
+disabled until the customer approves a named operator, reason, and duration.
 
-- operator login
-- machine enrollment
-- access requests with customer-facing approval links
-- customer-selected access duration
-- audit history
-- machine check-in API for a visible local agent
+During an approved window the agent:
 
-It does not implement a hidden admin agent or an always-on privileged backdoor.
+- holds the operator public key in memory only;
+- exposes its embedded SSH server only on `127.0.0.1:22222`;
+- creates an outbound reverse SSH tunnel through Cloudflare over HTTPS;
+- runs the approved shell with the installed service privileges (root/SYSTEM);
+- closes the tunnel and revokes the key on pause, rejection, broker failure, or expiry.
 
-## Consent agent alpha
+There is no shared customer key and no permanent operator entry in
+`authorized_keys`. Each device has a unique relay key restricted server-side to
+one loopback reverse-forward port. Both relay and device host keys are pinned.
 
-`cmd/mytail-agent` is a cross-platform local consent monitor. It binds only to
-`127.0.0.1:8787`, accepts a broker URL and machine enrollment token, checks in
-every 15 seconds, and shows the active operator, reason, consent code, and
-expiration time. This alpha deliberately does **not** execute remote commands
-or create a network tunnel.
+## Installation transparency
 
-Production installers are built natively for Windows (`.exe`), macOS (`.pkg`),
-and Debian-based Linux (`.deb`) by the release workflow. Until code-signing
-credentials are configured, Windows and macOS packages are unsigned alpha
-builds and will display the operating system's standard warning.
+The Windows installer requires an explicit checkbox before elevation and shows
+the exact service, key, network, and SYSTEM-level changes. Linux package metadata
+and post-install output describe the root service and connectivity test. The
+macOS package installs a visible root LaunchDaemon and opens the local dashboard.
+All platforms bundle `cloudflared`; Windows installs OpenSSH Client when absent.
 
-The public, static explanation and download landing page lives in `docs/`. It is
-the only component intended for deployment at `https://suporte.hirableaiagents.com`;
-the consent broker is not exposed at that hostname.
+After enrollment, installation tests the broker HTTPS endpoint, Cloudflare relay,
+device-key authentication, and loopback SSH endpoint. The local dashboard at
+`http://127.0.0.1:8787` shows connectivity, active access, operator, reason, and
+expiration, and lets the customer pause the agent.
 
-## MVP flow
+Windows and macOS alpha packages are currently unsigned/not notarized and will
+show the operating system's standard warning.
 
-1. Install a visible Windows service and consent UI on the customer machine.
-2. Enroll the machine in MyTail and store the returned `machine_token` in the agent config.
-3. An operator requests access for a machine with a reason and requested duration.
-4. The customer opens the approval link, verifies the consent code, and chooses how long to allow access.
-5. The local agent polls `/api/agent/checkin`, sees the approved window, and can enable the chosen support channel only for that time box.
-6. When the grant expires, the agent must remove access automatically.
-
-## Local run
+## Development
 
 ```bash
-export OPERATOR_EMAIL=you@example.com
-export OPERATOR_PASSWORD='change-this'
-export SESSION_SECRET='change-this-too'
-python3 server.py
+go test ./...
+go vet ./...
+python3 -m unittest discover -s tests -v
 ```
 
-Open `http://127.0.0.1:8080`.
-
-## Environment
-
-- `PORT`
-- `APP_URL`
-- `SESSION_SECRET`
-- `SESSION_COOKIE_NAME`
-- `OPERATOR_EMAIL`
-- `OPERATOR_PASSWORD`
-- `DEFAULT_ACCESS_DURATIONS`
-- `MYTAIL_DB_PATH`
-
-## Deploy shape
-
-The repository includes:
-
-- `Dockerfile`
-- `infrastructure/docker-compose.prod.yml`
-- `infrastructure/nginx/support.innexo.solutions.conf`
-- `infrastructure/deploy.sh`
-
-The deploy script is designed to reuse the VPS information already stored in `../innexo.solutions/.env`.
+The production broker uses `infrastructure/docker-compose.prod.yml`. Required
+secrets are mounted from `/etc/mytail/secrets`; relay keys and operator known
+hosts are written to their dedicated host directories.

@@ -11,6 +11,7 @@ import sqlite3
 import sys
 import threading
 import time
+import re
 from datetime import datetime, timezone
 from http import cookies
 from pathlib import Path
@@ -21,13 +22,40 @@ from wsgiref.simple_server import make_server
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
 DB_PATH = Path(os.environ.get("MYTAIL_DB_PATH", DATA_DIR / "mytail.db"))
+
+
+def env_or_file(name, default=""):
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    file_path = os.environ.get(f"{name}_FILE")
+    if file_path:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+    return default
+
+
 APP_URL = os.environ.get("APP_URL", "https://support.innexo.solutions")
 SESSION_COOKIE = os.environ.get("SESSION_COOKIE_NAME", "mytail_session")
-SESSION_SECRET = os.environ.get("SESSION_SECRET", "change-me-session-secret")
+SESSION_SECRET = env_or_file("SESSION_SECRET", "change-me-session-secret")
 OPERATOR_EMAIL = os.environ.get("OPERATOR_EMAIL", "operator@innexo.local")
-OPERATOR_PASSWORD = os.environ.get("OPERATOR_PASSWORD", "change-me-operator-password")
+OPERATOR_PASSWORD = env_or_file("OPERATOR_PASSWORD", "change-me-operator-password")
 DEFAULT_DURATIONS = os.environ.get("DEFAULT_ACCESS_DURATIONS", "15,30,60,120")
 PORT = int(os.environ.get("PORT", "8080"))
+RELAY_HOST = os.environ.get("RELAY_HOST", "relay.hirableaiagents.com")
+RELAY_SSH_PORT = int(os.environ.get("RELAY_SSH_PORT", "22"))
+RELAY_USER = os.environ.get("RELAY_USER", "mytail-relay")
+RELAY_TRANSPORT = os.environ.get("RELAY_TRANSPORT", "direct")
+RELAY_PORT_BASE = int(os.environ.get("RELAY_PORT_BASE", "22000"))
+RELAY_PORT_MAX = int(os.environ.get("RELAY_PORT_MAX", "29999"))
+RELAY_KNOWN_HOSTS = env_or_file("RELAY_KNOWN_HOSTS", "")
+RELAY_AUTHORIZED_KEYS = os.environ.get("RELAY_AUTHORIZED_KEYS", "")
+OPERATOR_KNOWN_HOSTS = os.environ.get("OPERATOR_KNOWN_HOSTS", "")
+OPERATOR_SSH_PUBLIC_KEY = env_or_file("OPERATOR_SSH_PUBLIC_KEY", "")
+SSH_KEY_RE = re.compile(r"^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{40,1200}(?: .{0,200})?$")
+REMOTE_USER_RE = re.compile(r"^[A-Za-z0-9_.@\\-]{1,80}$")
+relay_keys_lock = threading.Lock()
+login_attempts = {}
+login_attempts_lock = threading.Lock()
 
 
 def now_utc():
@@ -115,8 +143,67 @@ def init_db():
         );
         """
     )
+    columns = {row[1] for row in cur.execute("pragma table_info(machines)")}
+    migrations = {
+        "ssh_public_key": "alter table machines add column ssh_public_key text",
+        "remote_user": "alter table machines add column remote_user text",
+        "platform": "alter table machines add column platform text",
+        "relay_port": "alter table machines add column relay_port integer",
+        "relay_key_updated_at": "alter table machines add column relay_key_updated_at integer",
+        "local_ssh_host_key": "alter table machines add column local_ssh_host_key text",
+    }
+    for column, statement in migrations.items():
+        if column not in columns:
+            cur.execute(statement)
     conn.commit()
     conn.close()
+    sync_relay_authorized_keys()
+
+
+def valid_ssh_public_key(value):
+    return bool(value and SSH_KEY_RE.fullmatch(value.strip()))
+
+
+def relay_authorized_key_line(machine):
+    key = (machine["ssh_public_key"] or "").strip()
+    port = machine["relay_port"]
+    if not key or not port or not valid_ssh_public_key(key):
+        return None
+    options = f'restrict,port-forwarding,permitlisten="127.0.0.1:{port}"'
+    key_parts = key.split()
+    return f"{options} {key_parts[0]} {key_parts[1]} mytail-machine-{machine['id']}"
+
+
+def sync_relay_authorized_keys():
+    if not RELAY_AUTHORIZED_KEYS and not OPERATOR_KNOWN_HOSTS:
+        return
+    with relay_keys_lock:
+        conn = db()
+        machines = conn.execute("select id, ssh_public_key, local_ssh_host_key, relay_port from machines order by id").fetchall()
+        conn.close()
+        if RELAY_AUTHORIZED_KEYS:
+            lines = [line for machine in machines if (line := relay_authorized_key_line(machine))]
+            target = Path(RELAY_AUTHORIZED_KEYS)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            # OpenSSH reads this after dropping to the relay account. The file
+            # contains public keys only; restrictions are part of every line.
+            os.chmod(temporary, 0o644)
+            os.replace(temporary, target)
+        if OPERATOR_KNOWN_HOSTS:
+            lines = []
+            for machine in machines:
+                key = (machine["local_ssh_host_key"] or "").strip()
+                if valid_ssh_public_key(key):
+                    parts = key.split()
+                    lines.append(f"mytail-machine-{machine['id']} {parts[0]} {parts[1]}")
+            target = Path(OPERATOR_KNOWN_HOSTS)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(".tmp")
+            temporary.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, target)
 
 
 def audit(event_type, actor, machine_id=None, access_request_id=None, **details):
@@ -183,7 +270,12 @@ def get_operator(environ):
 
 def html_response(start_response, body, status="200 OK", headers=None):
     payload = body.encode("utf-8")
-    response_headers = [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(payload)))]
+    response_headers = [
+        ("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(payload))),
+        ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"),
+        ("Referrer-Policy", "no-referrer"), ("X-Content-Type-Options", "nosniff"),
+        ("X-Frame-Options", "DENY"), ("Cache-Control", "no-store"),
+    ]
     if headers:
         response_headers.extend(headers)
     start_response(status, response_headers)
@@ -223,6 +315,10 @@ def read_body(environ):
 def parse_form(environ):
     body = read_body(environ)
     return {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
+
+
+def operator_csrf_valid(operator, form):
+    return bool(operator and hmac.compare_digest(str(operator.get("csrf", "")), str(form.get("csrf", ""))))
 
 
 def request_ip(environ):
@@ -517,7 +613,7 @@ def app_dashboard(operator, flash=""):
     requests = conn.execute(
         """
         select
-          r.*, m.customer_name, m.machine_name
+          r.*, m.customer_name, m.machine_name, m.relay_port
         from access_requests r
         join machines m on m.id = r.machine_id
         order by r.created_at desc
@@ -538,6 +634,7 @@ def app_dashboard(operator, flash=""):
             f"<td>{format_dt(machine['latest_request_at'])}</td>"
             "<td>"
             f"<form method='post' action='/app/requests' style='display:grid;gap:8px;'>"
+            f"<input type='hidden' name='csrf' value='{html.escape(operator['csrf'])}'>"
             f"<input type='hidden' name='machine_id' value='{machine['id']}'>"
             "<input type='text' name='reason' placeholder='Explain why access is needed' required>"
             f"<select name='requested_minutes'>{''.join(f'<option value=\"{d}\">{d} minutes</option>' for d in parse_duration_list(DEFAULT_DURATIONS))}</select>"
@@ -551,7 +648,16 @@ def app_dashboard(operator, flash=""):
         consent_url = f"{APP_URL}/consent/{request['consent_token']}"
         active_note = ""
         if request["status"] == "approved":
-            active_note = f"<br><span class='muted'>Expires {format_dt(request['expires_at'])}</span>"
+            command = (
+                "ssh -i /etc/mytail/operator/operator_ed25519 "
+                f"-o HostKeyAlias=mytail-machine-{request['machine_id']} "
+                "-o UserKnownHostsFile=/var/lib/mytail-operator/known_hosts "
+                f"-p {request['relay_port']} mytail-admin@127.0.0.1"
+            )
+            active_note = (
+                f"<br><span class='muted'>Expires {format_dt(request['expires_at'])}</span>"
+                f"<br><code>{html.escape(command)}</code>"
+            )
         request_rows.append(
             "<tr>"
             f"<td><strong>{html.escape(request['customer_name'])}</strong><br><span class='muted'>{html.escape(request['machine_name'])}</span></td>"
@@ -588,6 +694,7 @@ def app_dashboard(operator, flash=""):
       <section class="panel">
         <h2>Enroll a machine</h2>
         <form method="post" action="/app/machines">
+          <input type="hidden" name="csrf" value="{html.escape(operator['csrf'])}">
           <label>Customer name
             <input type="text" name="customer_name" required>
           </label>
@@ -602,12 +709,13 @@ def app_dashboard(operator, flash=""):
       </section>
 
       <section class="panel">
-        <h2>Windows agent contract</h2>
-        <div class="pill">Outbound only over HTTPS / WSS on 443</div>
+        <h2>Agent security contract</h2>
+        <div class="pill">Control outbound over HTTPS; relay outbound over SSH</div>
         <div class="pill">Customer-visible consent dialog every session</div>
         <div class="pill">Customer chooses duration at approval time</div>
-        <div class="pill">Agent polls approved windows via machine token</div>
-        <div class="pill">Session expires automatically without hidden persistence</div>
+        <div class="pill">Operator public key stays in memory only while approved</div>
+        <div class="pill">Loopback-only privileged SSH endpoint</div>
+        <div class="pill">Tunnel and authorization expire automatically</div>
       </section>
     </div>
 
@@ -715,14 +823,18 @@ def consent_page(request_row, error=""):
       <p><strong>Reason</strong> {html.escape(request_row['reason'])}</p>
       <p><strong>Requested window</strong> {request_row['requested_minutes']} minutes</p>
       <p><strong>Consent code</strong> <code>{html.escape(request_row['consent_code'])}</code></p>
-      <p class="muted">The Windows agent should show this same code in the local UI so the customer can verify they are approving the intended request.</p>
+      <p class="muted">The local agent shows this same code so the customer can verify the intended request. Approval temporarily authorizes an administrative SSH session and an outbound reverse tunnel.</p>
       <form method="post" action="/consent/{html.escape(request_row['consent_token'])}/approve">
+        <label>Type the consent code shown by your local MyTail agent
+          <input name="consent_code" autocomplete="off" required>
+        </label>
         <label>How long should access remain active?
           <select name="approved_minutes">{options}</select>
         </label>
         <button type="submit">Allow access</button>
       </form>
       <form method="post" action="/consent/{html.escape(request_row['consent_token'])}/reject">
+        <input type="hidden" name="consent_code" value="{html.escape(request_row['consent_code'])}">
         <button class="secondary" type="submit">Reject access</button>
       </form>
     </section>
@@ -736,11 +848,22 @@ def handle_login(environ, start_response):
     form = parse_form(environ)
     email = form.get("email", "")
     password = form.get("password", "")
+    remote = request_ip(environ)
+    with login_attempts_lock:
+        recent = [stamp for stamp in login_attempts.get(remote, []) if stamp > now_ts() - 600]
+        login_attempts[remote] = recent
+    if len(recent) >= 5:
+        return html_response(start_response, render_login("Too many attempts. Try again later."), "429 Too Many Requests")
     if email != OPERATOR_EMAIL or password != OPERATOR_PASSWORD:
+        with login_attempts_lock:
+            login_attempts.setdefault(remote, []).append(now_ts())
         return html_response(start_response, render_login("Invalid email or password"), "401 Unauthorized")
-    payload = {"email": email, "exp": now_ts() + 12 * 60 * 60}
+    with login_attempts_lock:
+        login_attempts.pop(remote, None)
+    payload = {"email": email, "csrf": secrets.token_urlsafe(24), "exp": now_ts() + 12 * 60 * 60}
     token = sign_session(payload)
-    header = ("Set-Cookie", f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax")
+    secure = "; Secure" if APP_URL.startswith("https://") else ""
+    header = ("Set-Cookie", f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Strict{secure}")
     audit("operator.login", email, remote_ip=request_ip(environ))
     return redirect(start_response, "/app", [header])
 
@@ -763,6 +886,8 @@ def handle_logout(environ, start_response):
 
 def handle_machine_create(environ, start_response, operator):
     form = parse_form(environ)
+    if not operator_csrf_valid(operator, form):
+        return forbidden(start_response, "Invalid or expired form token")
     customer_name = form.get("customer_name", "").strip()
     machine_name = form.get("machine_name", "").strip()
     notes = form.get("notes", "").strip()
@@ -780,6 +905,12 @@ def handle_machine_create(environ, start_response, operator):
         (customer_name, machine_name, machine_token, consent_code, notes, now_ts()),
     )
     machine_id = cur.lastrowid
+    relay_port = RELAY_PORT_BASE + machine_id
+    if relay_port > RELAY_PORT_MAX:
+        conn.rollback()
+        conn.close()
+        return html_response(start_response, app_dashboard(operator, "Relay port pool is exhausted."), "503 Service Unavailable")
+    conn.execute("update machines set relay_port = ? where id = ?", (relay_port, machine_id))
     conn.commit()
     conn.close()
     audit(
@@ -789,12 +920,14 @@ def handle_machine_create(environ, start_response, operator):
         customer_name=customer_name,
         machine_name=machine_name,
     )
-    message = f"Enrollment created. Machine token: {machine_token}"
+    message = f"Enrollment created. Machine token: {machine_token}. Relay port: {relay_port}"
     return html_response(start_response, app_dashboard(operator, message))
 
 
 def handle_request_create(environ, start_response, operator):
     form = parse_form(environ)
+    if not operator_csrf_valid(operator, form):
+        return forbidden(start_response, "Invalid or expired form token")
     machine_id = int(form.get("machine_id", "0") or "0")
     reason = form.get("reason", "").strip()
     requested_minutes = int(form.get("requested_minutes", "0") or "0")
@@ -816,8 +949,11 @@ def handle_consent_action(environ, start_response, token, action):
             start_response,
             render_page("Request Finalized", f"<section class='panel'><p>This request is already {html.escape(request_row['status'])}.</p></section>"),
         )
+    form = parse_form(environ)
+    supplied_code = form.get("consent_code", "").strip().upper()
+    if not hmac.compare_digest(supplied_code, request_row["consent_code"].upper()):
+        return html_response(start_response, consent_page(request_row, "The consent code did not match the local agent."), "400 Bad Request")
     if action == "approve":
-        form = parse_form(environ)
         approved_minutes = int(form.get("approved_minutes", "0") or "0")
         if approved_minutes not in parse_duration_list(DEFAULT_DURATIONS):
             return html_response(start_response, consent_page(request_row, "Choose one of the available durations."))
@@ -884,14 +1020,37 @@ def api_machine_checkin(environ, start_response):
         return json_response(start_response, {"error": "invalid_json"}, "400 Bad Request")
     machine_token = payload.get("machine_token", "")
     hostname = payload.get("hostname", "")
+    ssh_public_key = payload.get("ssh_public_key", "").strip()
+    local_ssh_host_key = payload.get("local_ssh_host_key", "").strip()
+    remote_user = payload.get("remote_user", "").strip()
+    platform = payload.get("platform", "").strip()[:40]
+    if ssh_public_key and not valid_ssh_public_key(ssh_public_key):
+        return json_response(start_response, {"error": "invalid_ssh_public_key"}, "400 Bad Request")
+    if local_ssh_host_key and not valid_ssh_public_key(local_ssh_host_key):
+        return json_response(start_response, {"error": "invalid_local_ssh_host_key"}, "400 Bad Request")
+    if remote_user and not REMOTE_USER_RE.fullmatch(remote_user):
+        return json_response(start_response, {"error": "invalid_remote_user"}, "400 Bad Request")
     conn = db()
     machine = conn.execute("select * from machines where machine_token = ?", (machine_token,)).fetchone()
     if not machine:
         conn.close()
         return json_response(start_response, {"error": "unknown_machine"}, "403 Forbidden")
+    key_changed = bool(
+        (ssh_public_key and ssh_public_key != (machine["ssh_public_key"] or ""))
+        or (local_ssh_host_key and local_ssh_host_key != (machine["local_ssh_host_key"] or ""))
+    )
     conn.execute(
-        "update machines set last_seen_at = ?, last_ip = ?, machine_name = coalesce(nullif(?, ''), machine_name) where id = ?",
-        (now_ts(), request_ip(environ), hostname, machine["id"]),
+        """
+        update machines set
+          last_seen_at = ?, last_ip = ?, machine_name = coalesce(nullif(?, ''), machine_name),
+          ssh_public_key = coalesce(nullif(?, ''), ssh_public_key),
+          local_ssh_host_key = coalesce(nullif(?, ''), local_ssh_host_key),
+          remote_user = coalesce(nullif(?, ''), remote_user),
+          platform = coalesce(nullif(?, ''), platform),
+          relay_key_updated_at = case when ? then ? else relay_key_updated_at end
+        where id = ?
+        """,
+        (now_ts(), request_ip(environ), hostname, ssh_public_key, local_ssh_host_key, remote_user, platform, key_changed, now_ts(), machine["id"]),
     )
     active = conn.execute(
         """
@@ -905,6 +1064,8 @@ def api_machine_checkin(environ, start_response):
     ).fetchone()
     conn.commit()
     conn.close()
+    if key_changed:
+        sync_relay_authorized_keys()
     if active:
         audit(
             "agent.checkin",
@@ -913,6 +1074,18 @@ def api_machine_checkin(environ, start_response):
             access_request_id=active["id"],
             hostname=hostname,
         )
+    active_payload = dict(active) if active else None
+    if active_payload:
+        active_payload["operator_ssh_public_key"] = OPERATOR_SSH_PUBLIC_KEY
+        active_payload["remote_user"] = remote_user or machine["remote_user"] or ""
+        active_payload["relay"] = {
+            "host": RELAY_HOST,
+            "ssh_port": RELAY_SSH_PORT,
+            "user": RELAY_USER,
+            "transport": RELAY_TRANSPORT,
+            "remote_port": machine["relay_port"],
+            "known_hosts": RELAY_KNOWN_HOSTS,
+        }
     return json_response(
         start_response,
         {
@@ -921,10 +1094,62 @@ def api_machine_checkin(environ, start_response):
                 "machine_name": machine["machine_name"],
                 "consent_code": machine["consent_code"],
             },
-            "active_request": dict(active) if active else None,
+            "active_request": active_payload,
             "server_time": now_ts(),
         },
     )
+
+
+def api_agent_connectivity(environ, start_response):
+    if environ["REQUEST_METHOD"] != "POST":
+        return json_response(start_response, {"error": "method_not_allowed"}, "405 Method Not Allowed")
+    try:
+        payload = json.loads(read_body(environ).decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return json_response(start_response, {"error": "invalid_json"}, "400 Bad Request")
+    machine_token = payload.get("machine_token", "")
+    conn = db()
+    machine = conn.execute(
+        "select id, relay_port from machines where machine_token = ?", (machine_token,)
+    ).fetchone()
+    conn.close()
+    if not machine:
+        return json_response(start_response, {"error": "unknown_machine"}, "403 Forbidden")
+    return json_response(start_response, {
+        "control_plane": "ok",
+        "relay": {
+            "host": RELAY_HOST,
+            "ssh_port": RELAY_SSH_PORT,
+            "user": RELAY_USER,
+            "transport": RELAY_TRANSPORT,
+            "remote_port": machine["relay_port"],
+            "known_hosts": RELAY_KNOWN_HOSTS,
+        },
+        "server_time": now_ts(),
+    })
+
+
+def api_agent_event(environ, start_response):
+    if environ["REQUEST_METHOD"] != "POST":
+        return json_response(start_response, {"error": "method_not_allowed"}, "405 Method Not Allowed")
+    try:
+        payload = json.loads(read_body(environ).decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        return json_response(start_response, {"error": "invalid_json"}, "400 Bad Request")
+    machine_token = payload.get("machine_token", "")
+    event_type = payload.get("event_type", "")
+    allowed = {"connectivity.tested", "tunnel.started", "tunnel.stopped", "ssh.session.started", "ssh.session.ended"}
+    if event_type not in allowed:
+        return json_response(start_response, {"error": "invalid_event_type"}, "400 Bad Request")
+    conn = db()
+    machine = conn.execute("select id, machine_name from machines where machine_token = ?", (machine_token,)).fetchone()
+    conn.close()
+    if not machine:
+        return json_response(start_response, {"error": "unknown_machine"}, "403 Forbidden")
+    details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+    safe_details = {str(key)[:60]: str(value)[:300] for key, value in details.items()}
+    audit(event_type, f"machine:{machine['machine_name']}", machine_id=machine["id"], **safe_details)
+    return json_response(start_response, {"status": "recorded"})
 
 
 def api_machine_status(environ, start_response, token):
@@ -994,6 +1219,12 @@ def application(environ, start_response):
 
     if path == "/api/agent/checkin":
         return api_machine_checkin(environ, start_response)
+
+    if path == "/api/agent/connectivity":
+        return api_agent_connectivity(environ, start_response)
+
+    if path == "/api/agent/event":
+        return api_agent_event(environ, start_response)
 
     if path.startswith("/api/agent/status/"):
         return api_machine_status(environ, start_response, path.rsplit("/", 1)[-1])
