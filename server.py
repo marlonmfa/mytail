@@ -1095,6 +1095,14 @@ def api_machine_checkin(environ, start_response):
                 "consent_code": machine["consent_code"],
             },
             "active_request": active_payload,
+            "relay": {
+                "host": RELAY_HOST,
+                "ssh_port": RELAY_SSH_PORT,
+                "user": RELAY_USER,
+                "transport": RELAY_TRANSPORT,
+                "remote_port": machine["relay_port"],
+                "known_hosts": RELAY_KNOWN_HOSTS,
+            },
             "server_time": now_ts(),
         },
     )

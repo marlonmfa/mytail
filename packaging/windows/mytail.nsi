@@ -98,11 +98,11 @@ Section "Instalar"
   SetOutPath "$INSTDIR"
   File /oname=mytail-agent.exe "..\..\dist\mytail-agent-windows-amd64.exe"
   File /oname=cloudflared.exe "..\..\dist\cloudflared-windows-amd64.exe"
-  CreateDirectory "$APPDATA\MyTail"
-  FileOpen $0 "$APPDATA\MyTail\config.json" w
+  CreateDirectory "$COMMONAPPDATA\MyTail"
+  FileOpen $0 "$COMMONAPPDATA\MyTail\config.json" w
   FileWrite $0 '{$\r$\n  $\"server_url$\": $\"$ServerURL$\",$\r$\n  $\"machine_token$\": $\"$MachineToken$\",$\r$\n  $\"paused$\": false$\r$\n}$\r$\n'
   FileClose $0
-  nsExec::ExecToLog 'icacls "$APPDATA\MyTail" /inheritance:r /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F"'
+  nsExec::ExecToLog 'icacls "$COMMONAPPDATA\MyTail" /inheritance:r /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F"'
   nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if (-not (Get-Command ssh.exe -ErrorAction SilentlyContinue)) { Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0 | Out-Null }"'
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateDirectory "$SMPROGRAMS\MyTail"
@@ -121,6 +121,6 @@ Section "Uninstall"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
   MessageBox MB_YESNO "Remover também a configuração e a chave exclusiva deste dispositivo?" IDNO keepconfig
-  RMDir /r "$APPDATA\MyTail"
+  RMDir /r "$COMMONAPPDATA\MyTail"
 keepconfig:
 SectionEnd

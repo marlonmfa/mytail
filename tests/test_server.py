@@ -64,6 +64,8 @@ class ServerRelayTests(unittest.TestCase):
         )
         self.assertEqual(status, "200 OK")
         self.assertIsNone(payload["active_request"])
+        self.assertEqual(payload["relay"]["known_hosts"], server.RELAY_KNOWN_HOSTS)
+        self.assertEqual(payload["relay"]["remote_port"], 22001)
         authorized = Path(server.RELAY_AUTHORIZED_KEYS).read_text()
         self.assertIn('permitlisten="127.0.0.1:22001"', authorized)
         self.assertIn("mytail-machine-1", authorized)

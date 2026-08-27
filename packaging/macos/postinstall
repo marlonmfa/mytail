@@ -11,6 +11,9 @@ if [ -x "/usr/local/lib/mytail/cloudflared-$arch" ]; then
 fi
 mkdir -p "/Library/Application Support/MyTail"
 chmod 700 "/Library/Application Support/MyTail"
+if [ -n "${MYTAIL_SERVER_URL:-}" ] && [ -n "${MYTAIL_MACHINE_TOKEN:-}" ]; then
+  /usr/local/bin/mytail-agent --configure-server "$MYTAIL_SERVER_URL" --machine-token "$MYTAIL_MACHINE_TOKEN" --test-only
+fi
 launchctl bootout system/com.hirableaiagents.mytail 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/com.hirableaiagents.mytail.plist
 launchctl enable system/com.hirableaiagents.mytail

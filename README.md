@@ -32,6 +32,36 @@ expiration, and lets the customer pause the agent.
 Windows and macOS alpha packages are currently unsigned/not notarized and will
 show the operating system's standard warning.
 
+## Run a machine directly
+
+The platform launchers enroll a machine and keep MyTail attached to the current
+terminal (Ctrl+C disconnects it). They request administrator privileges because
+the agent stores its device identity in the protected system configuration path.
+
+```bash
+# Linux
+./linux/run-mytail.sh
+
+# macOS
+./macos/run-mytail.sh
+```
+
+```powershell
+# Windows PowerShell
+.\windows\run-mytail.ps1
+```
+
+Each script prompts for the MyTail server URL and machine enrollment token. For
+automation, pass `--server` and `--token` on Linux/macOS, or `-ServerUrl` and
+`-MachineToken` on Windows. The MyTail package must already be installed, or the
+agent binary (and its bundled `cloudflared`) must be placed beside the script.
+
+On the first check-in, the agent generates the client's unique Ed25519 keys and
+sends only their public parts to the broker. The broker installs the relay key
+with a per-machine port restriction and returns its pinned host key, which the
+agent writes to its protected `relay_known_hosts` file. Private keys never leave
+the machine where they were generated.
+
 ## Development
 
 ```bash

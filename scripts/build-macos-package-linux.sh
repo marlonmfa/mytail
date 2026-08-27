@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${MYTAIL_VERSION:-0.2.0-alpha.1}"
+VERSION="${MYTAIL_VERSION:-0.2.0-alpha.2}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 XAR_BIN="${XAR_BIN:?Set XAR_BIN to a xar 1.6 executable}"
 MKBOM_BIN="${MKBOM_BIN:?Set MKBOM_BIN to the bomutils mkbom executable}"

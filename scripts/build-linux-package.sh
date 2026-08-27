@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${MYTAIL_VERSION:-0.2.0-alpha.1}"
+VERSION="${MYTAIL_VERSION:-0.2.0-alpha.2}"
 ARCH="${MYTAIL_ARCH:-amd64}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$(mktemp -d)"

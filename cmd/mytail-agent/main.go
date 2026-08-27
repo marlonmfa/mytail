@@ -62,6 +62,7 @@ type Checkin struct {
 		ConsentCode  string `json:"consent_code"`
 	} `json:"machine"`
 	ActiveRequest *ActiveRequest `json:"active_request"`
+	Relay         *Relay         `json:"relay"`
 	ServerTime    int64          `json:"server_time"`
 }
 
@@ -440,6 +441,12 @@ func (a *Agent) checkin() error {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return err
 	}
+	if result.Relay == nil || strings.TrimSpace(result.Relay.KnownHosts) == "" {
+		return errors.New("servidor não forneceu sua chave SSH do relay")
+	}
+	if err := os.WriteFile(a.knownHostsPath(), []byte(strings.TrimSpace(result.Relay.KnownHosts)+"\n"), 0600); err != nil {
+		return fmt.Errorf("salvar chave SSH do servidor: %w", err)
+	}
 	a.mu.Lock()
 	a.last = &result
 	a.lastCheckin = time.Now()
@@ -735,7 +742,7 @@ var page = template.Must(template.New("page").Parse(`<!doctype html><html lang="
 :root{color-scheme:dark;--a:#57e6b1;--bg:#07111f;--p:#102137;--m:#aab6ca}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f5f8ff;font:16px/1.55 system-ui,sans-serif}.w{width:min(760px,calc(100% - 32px));margin:55px auto}.brand{font-size:20px;font-weight:800}.dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--a);box-shadow:0 0 15px var(--a);margin-right:10px}.card{background:var(--p);border:1px solid #ffffff1f;border-radius:20px;padding:26px;margin-top:20px}.state{font-size:32px;font-weight:800;margin:4px 0 12px}.active{border-color:#57e6b166}.muted{color:var(--m)}dl{display:grid;grid-template-columns:150px 1fr;gap:8px}dt{color:var(--m)}dd{margin:0;overflow-wrap:anywhere}input{width:100%;padding:12px;margin:6px 0 14px;border:1px solid #ffffff25;border-radius:10px;background:#07111f;color:white}button{padding:12px 18px;border:0;border-radius:10px;background:var(--a);color:#052119;font-weight:800}.warn{color:#ffca73}@media(max-width:560px){dl{grid-template-columns:1fr;gap:2px}dd{margin-bottom:9px}}</style></head><body><main class="w"><div class="brand"><span class="dot"></span>MyTail <span class="muted">v{{.Version}}</span></div>
 {{if .Configured}}<section class="card {{if .Active}}active{{end}}"><div class="muted">STATUS LOCAL</div><div class="state">{{.State}}</div>{{if .Error}}<p class="warn">{{.Error}}</p>{{end}}<dl><dt>Cliente</dt><dd>{{.Customer}}</dd><dt>Máquina</dt><dd>{{.Machine}}</dd><dt>Código de consentimento</dt><dd><strong>{{.Code}}</strong></dd><dt>Servidor</dt><dd>{{.ServerURL}}</dd><dt>Nível da sessão</dt><dd>privilégios do serviço MyTail (administrador)</dd><dt>Túnel reverso</dt><dd>{{if .TunnelActive}}ativo{{else}}inativo{{end}}</dd>{{if .Active}}<dt>Operador</dt><dd>{{.Operator}}</dd><dt>Motivo</dt><dd>{{.Reason}}</dd><dt>Expira</dt><dd>{{.Expires}}</dd>{{end}}</dl><form method="post" action="/pause"><button type="submit">{{if .Paused}}Retomar agente{{else}}Pausar agente{{end}}</button></form></section>{{end}}
 {{if .CheckedAt}}<section class="card"><h2>Teste de conectividade</h2><dl><dt>Controle HTTPS</dt><dd>{{.ControlTest}}</dd><dt>Relay TCP</dt><dd>{{.RelayTCPTest}}</dd><dt>Autenticação SSH</dt><dd>{{.RelaySSHTest}}</dd><dt>SSH local</dt><dd>{{.LocalSSHTest}}</dd><dt>Testado em</dt><dd>{{.CheckedAt}}</dd></dl></section>{{end}}
-<section class="card"><h2>Configuração e teste</h2><p class="muted">O MyTail gera uma chave exclusiva deste dispositivo. A chave pública do operador fica somente em memória durante uma autorização aprovada; a sessão recebe os privilégios administrativos do serviço.</p><form method="post" action="/setup"><label>URL HTTPS do servidor<input name="server_url" value="{{.ServerURL}}" placeholder="https://broker-suporte.hirableaiagents.com" required></label><label>Token de inscrição da máquina<input name="machine_token" type="password" placeholder="Token fornecido pelo suporte" required></label><button type="submit">Salvar e testar HTTPS, relay e SSH</button></form></section></main></body></html>`))
+<section class="card"><h2>Configuração e teste</h2><p class="muted">Ao salvar, o MyTail gera uma chave exclusiva desta máquina, envia somente a chave pública ao servidor e fixa localmente a chave pública do relay. As chaves privadas nunca saem de seus dispositivos. A chave pública do operador fica somente em memória durante uma autorização aprovada.</p><form method="post" action="/setup"><label>URL HTTPS do servidor<input name="server_url" value="{{.ServerURL}}" placeholder="https://broker-suporte.hirableaiagents.com" required></label><label>Token de inscrição da máquina<input name="machine_token" type="password" placeholder="Token fornecido pelo suporte" required></label><button type="submit">Registrar máquina, trocar chaves e testar conexão</button></form></section></main></body></html>`))
 
 func (a *Agent) handleHome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
@@ -813,7 +820,8 @@ func openBrowser(target string) {
 func main() {
 	open := false
 	testOnly := false
-	configureServer, configureToken := "", ""
+	configureServer := os.Getenv("MYTAIL_SERVER_URL")
+	configureToken := os.Getenv("MYTAIL_MACHINE_TOKEN")
 	for index := 1; index < len(os.Args); index++ {
 		switch os.Args[index] {
 		case "--open":
